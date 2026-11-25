@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartGuard AI - Система безопасности</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f0f2f5; }
+        .video-container { background: #000; border-radius: 8px; overflow: hidden; }
+        .video-container img { width: 100%; display: block; }
+        .event-card { transition: transform 0.2s; border: none; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .event-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .media-preview { max-width: 100%; height: auto; border-radius: 6px; margin-bottom: 8px; background: #eee; }
+        .delete-btn { z-index: 10; }
+    </style>
+</head>
+<body>
+    <div class="container py-4">
+        <header class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-3 border-bottom">
+            <h1 class="h3 mb-0">📹 SmartGuard AI</h1>
+            <div class="text-muted small mt-2 mt-md-0">
+                Локальный IP: <strong>{{ local_ip }}</strong> |
+                ESP32: <strong>{{ esp_ip }}:{{ esp_port }}</strong>
+            </div>
+        </header>
+
+        <div class="row">
+            <!-- Левая колонка: Live Stream -->
+            <div class="col-lg-5 mb-4">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                        <span>🔴 Прямой эфир</span>
+                        <span class="badge bg-danger">LIVE</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="video-container">
+                            <img src="/video_feed" alt="Live Stream">
+                        </div>
+                    </div>
+                    <div class="card-footer d-flex gap-2 bg-white">
+                        <a href="/download_all" class="btn btn-primary flex-grow-1">💾 Скачать всё (ZIP)</a>
+                        <button onclick="deleteAll()" class="btn btn-outline-danger flex-grow-1">🗑️ Удалить всё</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Правая колонка: История -->
+            <div class="col-lg-7">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4 class="mb-0">📜 История событий</h4>
+                    <span class="badge bg-secondary">{{ events|length }} записей</span>
+                </div>
+
+                {% if not events %}
+                    <div class="alert alert-info text-center">Событий пока нет. Ожидайте обнаружения движения...</div>
+                {% endif %}
+
+                {% for event in events %}
+                <div class="card event-card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center bg-white">
+                        <strong class="text-primary">🕒 {{ event.timestamp }}</strong>
+                        <div class="btn-group btn-group-sm">
+                            <a href="/event_archive/{{ loop.index0 }}" class="btn btn-outline-primary">💾 ZIP</a>
+                            <button onclick="deleteEvent({{ loop.index0 }})" class="btn btn-outline-danger">🗑️ Событие</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-3 mb-md-0">
+                                <h6 class="text-muted small text-uppercase">📸 Фотографии</h6>
+                                {% if event.photos %}
+                                    {% for photo in event.photos %}
+                                    {% set fname = photo | replace('photos/', '') %}
+                                    <div class="position-relative d-inline-block w-100">
+                                        <img src="/download/{{ photo }}" class="media-preview" loading="lazy" decoding="async" alt="Photo">
+                                        <button onclick="deleteMedia('photo', '{{ fname }}')" class="btn btn-sm btn-danger position-absolute top-0 end-0 m-1 delete-btn">×</button>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <span class="text-muted small">Нет фото</span>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="text-muted small text-uppercase">🎥 Видео</h6>
+                                {% if event.video_file %}
+                                <div class="position-relative">
+                                    <video src="/download/{{ event.video }}" class="media-preview" controls preload="none"></video>
+                                    <button onclick="deleteMedia('video', '{{ event.video_file }}')" class="btn btn-sm btn-danger position-absolute top-0 end-0 m-1 delete-btn">×</button>
+                                </div>
+                                {% else %}
+                                    <span class="text-muted small">Нет видео</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function deleteMedia(type, filename) {
+            if (!confirm('Удалить этот файл?')) return;
+            const url = type === 'photo' ? `/delete_photo/${filename}` : `/delete_video/${filename}`;
+            fetch(url, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => { if (data.success) location.reload(); else alert('Ошибка удаления'); })
+                .catch(() => alert('Ошибка сети'));
+        }
+
+        function deleteEvent(idx) {
+            if (!confirm('Удалить это событие целиком (фото и видео)?')) return;
+            fetch(`/delete_event/${idx}`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => { if (data.success) location.reload(); else alert('Ошибка удаления'); })
+                .catch(() => alert('Ошибка сети'));
+        }
+
+        function deleteAll() {
+            if (!confirm('ВНИМАНИЕ: Это удалит ВСЮ историю и файлы! Продолжить?')) return;
+            fetch('/delete_all', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => { if (data.success) location.reload(); else alert('Ошибка удаления'); })
+                .catch(() => alert('Ошибка сети'));
+        }
+    </script>
+</body>
+</html>
